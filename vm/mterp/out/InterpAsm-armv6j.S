@@ -319,12 +319,15 @@ dvmMterpStdRun:
 
 .Lbad_arg:
     ldr     r0, strBadEntryPoint
+0:  add     r0, pc
     @ r1 holds value of entryPoint
     bl      printf
     bl      dvmAbort
     .fnend
     .size   dvmMterpStdRun, .-dvmMterpStdRun
 
+strBadEntryPoint:
+    .word   PCREL_REF(.LstrBadEntryPoint,0b)
 
     .global dvmMterpStdBail
     .type   dvmMterpStdBail, %function
@@ -346,12 +349,6 @@ dvmMterpStdBail:
     add     sp, sp, #4                      @ un-align 64
     ldmfd   sp!, {r4-r10,fp,pc}             @ restore 9 regs and return
 
-
-/*
- * String references.
- */
-strBadEntryPoint:
-    .word   .LstrBadEntryPoint
 
 
     .global dvmAsmInstructionStart
@@ -433,8 +430,8 @@ dalvik_inst:
     add     r2, rFP, r2, lsl #2         @ r2<- &fp[A]
     ldmia   r3, {r0-r1}                 @ r0/r1<- fp[B]
     FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     stmia   r2, {r0-r1}                 @ fp[A]<- r0/r1
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* ------------------------------ */
@@ -465,8 +462,8 @@ dalvik_inst:
     add     r2, rFP, r2, lsl #2         @ r2<- &fp[AAAA]
     ldmia   r3, {r0-r1}                 @ r0/r1<- fp[BBBB]
     FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     stmia   r2, {r0-r1}                 @ fp[AAAA]<- r0/r1
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* ------------------------------ */
@@ -541,8 +538,8 @@ dalvik_inst:
     add     r2, rFP, r2, lsl #2         @ r2<- &fp[AA]
     ldmia   r3, {r0-r1}                 @ r0/r1<- retval.j
     FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     stmia   r2, {r0-r1}                 @ fp[AA]<- r0/r1
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* ------------------------------ */
@@ -759,8 +756,8 @@ dalvik_inst:
     cmp     r0, #0                      @ not yet resolved?
     beq     .LOP_CONST_STRING_resolve
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SET_VREG(r0, r9)                    @ vAA<- r0
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* ------------------------------ */
@@ -778,8 +775,8 @@ dalvik_inst:
     cmp     r0, #0
     beq     .LOP_CONST_STRING_JUMBO_resolve
     FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SET_VREG(r0, r9)                    @ vAA<- r0
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* ------------------------------ */
@@ -795,8 +792,8 @@ dalvik_inst:
     cmp     r0, #0                      @ not yet resolved?
     beq     .LOP_CONST_CLASS_resolve
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SET_VREG(r0, r9)                    @ vAA<- r0
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* ------------------------------ */
@@ -8059,8 +8056,8 @@ dvmAsmSisterStart:
     cmp     r0, #0                      @ failed?
     beq     common_exceptionThrown      @ yup, handle the exception
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SET_VREG(r0, r9)                    @ vAA<- r0
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* continuation for OP_CONST_STRING_JUMBO */
@@ -8078,8 +8075,8 @@ dvmAsmSisterStart:
     cmp     r0, #0                      @ failed?
     beq     common_exceptionThrown      @ yup, handle the exception
     FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SET_VREG(r0, r9)                    @ vAA<- r0
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* continuation for OP_CONST_CLASS */
@@ -8098,8 +8095,8 @@ dvmAsmSisterStart:
     cmp     r0, #0                      @ failed?
     beq     common_exceptionThrown      @ yup, handle the exception
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SET_VREG(r0, r9)                    @ vAA<- r0
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* continuation for OP_CHECK_CAST */
@@ -8217,8 +8214,8 @@ dvmAsmSisterStart:
 #endif
 .LOP_NEW_INSTANCE_end:
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SET_VREG(r0, r3)                    @ vAA<- r0
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 #if defined(WITH_JIT)
@@ -8237,8 +8234,8 @@ dvmAsmSisterStart:
     mov     r1, rPC
     bl      dvmJitEndTraceSelect        @ (self, pc)
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SET_VREG(r9, r10)                   @ vAA<- new object
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 #endif
 
@@ -8381,6 +8378,7 @@ dvmAsmSisterStart:
      */
 .LOP_FILLED_NEW_ARRAY_notimpl:
     ldr     r0, .L_strFilledNewArrayNotImpl_OP_FILLED_NEW_ARRAY
+3:  add     r0, pc
     bl      dvmThrowInternalError
     b       common_exceptionThrown
 
@@ -8390,7 +8388,7 @@ dvmAsmSisterStart:
      */
 
 .L_strFilledNewArrayNotImpl_OP_FILLED_NEW_ARRAY:
-    .word   .LstrFilledNewArrayNotImpl
+    .word   PCREL_REF(.LstrFilledNewArrayNotImpl,3b)
 
 /* continuation for OP_FILLED_NEW_ARRAY_RANGE */
 
@@ -8465,6 +8463,7 @@ dvmAsmSisterStart:
      */
 .LOP_FILLED_NEW_ARRAY_RANGE_notimpl:
     ldr     r0, .L_strFilledNewArrayNotImpl_OP_FILLED_NEW_ARRAY_RANGE
+3:  add     r0, pc
     bl      dvmThrowInternalError
     b       common_exceptionThrown
 
@@ -8474,7 +8473,7 @@ dvmAsmSisterStart:
      */
 
 .L_strFilledNewArrayNotImpl_OP_FILLED_NEW_ARRAY_RANGE:
-    .word   .LstrFilledNewArrayNotImpl
+    .word   PCREL_REF(.LstrFilledNewArrayNotImpl,3b)
 
 /* continuation for OP_CMPL_FLOAT */
 
@@ -8697,8 +8696,8 @@ OP_CMPG_FLOAT_nan:
     GOTO_OPCODE(ip)                     @ jump to next instruction
 .LOP_APUT_OBJECT_skip_check:
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     str     r9, [r10, #offArrayObject_contents] @ vBB[vCC]<- vAA
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 .LOP_APUT_OBJECT_throw:
     @ The types don't match.  We need to throw an ArrayStoreException.
@@ -8875,10 +8874,10 @@ OP_CMPG_FLOAT_nan:
     GET_VREG(r0, r1)                    @ r0<- fp[A]
     beq     common_errNullObject        @ object was null
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     @ no-op                         @ releasing store
     str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
     @ no-op 
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* continuation for OP_IPUT_WIDE */
@@ -8923,10 +8922,10 @@ OP_CMPG_FLOAT_nan:
     ldr     r2, [rSELF, #offThread_cardTable]  @ r2<- card table base
     beq     common_errNullObject        @ object was null
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     @ no-op                         @ releasing store
     str     r0, [r9, r3]                @ obj.field (32 bits)<- r0
     @ no-op 
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     cmp     r0, #0                      @ stored a null reference?
     strneb  r2, [r2, r9, lsr #GC_CARD_SHIFT]  @ mark card if not
     GOTO_OPCODE(ip)                     @ jump to next instruction
@@ -8947,10 +8946,10 @@ OP_CMPG_FLOAT_nan:
     GET_VREG(r0, r1)                    @ r0<- fp[A]
     beq     common_errNullObject        @ object was null
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     @ no-op                         @ releasing store
     str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
     @ no-op 
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* continuation for OP_IPUT_BYTE */
@@ -8969,10 +8968,10 @@ OP_CMPG_FLOAT_nan:
     GET_VREG(r0, r1)                    @ r0<- fp[A]
     beq     common_errNullObject        @ object was null
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     @ no-op                         @ releasing store
     str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
     @ no-op 
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* continuation for OP_IPUT_CHAR */
@@ -8991,10 +8990,10 @@ OP_CMPG_FLOAT_nan:
     GET_VREG(r0, r1)                    @ r0<- fp[A]
     beq     common_errNullObject        @ object was null
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     @ no-op                         @ releasing store
     str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
     @ no-op 
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* continuation for OP_IPUT_SHORT */
@@ -9013,10 +9012,10 @@ OP_CMPG_FLOAT_nan:
     GET_VREG(r0, r1)                    @ r0<- fp[A]
     beq     common_errNullObject        @ object was null
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     @ no-op                         @ releasing store
     str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
     @ no-op 
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* continuation for OP_SGET */
@@ -9773,10 +9772,10 @@ d2l_doconv:
     GET_VREG(r0, r1)                    @ r0<- fp[A]
     beq     common_errNullObject        @ object was null
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SMP_DMB_ST                        @ releasing store
     str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
     SMP_DMB
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     GOTO_OPCODE(ip)                     @ jump to next instruction
 
 /* continuation for OP_SGET_VOLATILE */
@@ -9989,6 +9988,7 @@ d2l_doconv:
     ldr     r0, [rFP, ip, lsl #2]       @ r0<- vC
 0:
     ldr     rINST, .LOP_EXECUTE_INLINE_table    @ table of InlineOperation
+5:  add     rINST, pc
     ldr     pc, [rINST, r10, lsl #4]    @ sizeof=16, "func" is first entry
     @ (not reached)
 
@@ -10024,7 +10024,7 @@ d2l_doconv:
 
 
 .LOP_EXECUTE_INLINE_table:
-    .word   gDvmInlineOpsTable
+    .word   PCREL_REF(gDvmInlineOpsTable,5b)
 
 /* continuation for OP_EXECUTE_INLINE_RANGE */
 
@@ -10049,6 +10049,7 @@ d2l_doconv:
     GET_VREG(r0, ip)                    @ r0<- vBase[0]
 0:
     ldr     r9, .LOP_EXECUTE_INLINE_RANGE_table       @ table of InlineOperation
+5:  add     r9, pc
     ldr     pc, [r9, r10, lsl #4]       @ sizeof=16, "func" is first entry
     @ (not reached)
 
@@ -10086,7 +10087,7 @@ d2l_doconv:
 
 
 .LOP_EXECUTE_INLINE_RANGE_table:
-    .word   gDvmInlineOpsTable
+    .word   PCREL_REF(gDvmInlineOpsTable,5b)
 
 
 /* continuation for OP_INVOKE_OBJECT_INIT_RANGE */
@@ -10128,10 +10129,10 @@ d2l_doconv:
     ldr     r2, [rSELF, #offThread_cardTable]  @ r2<- card table base
     beq     common_errNullObject        @ object was null
     FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     SMP_DMB_ST                        @ releasing store
     str     r0, [r9, r3]                @ obj.field (32 bits)<- r0
     SMP_DMB
+    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
     cmp     r0, #0                      @ stored a null reference?
     strneb  r2, [r2, r9, lsr #GC_CARD_SHIFT]  @ mark card if not
     GOTO_OPCODE(ip)                     @ jump to next instruction
@@ -16946,7 +16947,6 @@ common_exceptionThrown:
     ldr     r1, [rSELF, #offThread_method] @ r1<- self->method
     mov     r0, rSELF                   @ r0<- self
     ldr     r1, [r1, #offMethod_insns]  @ r1<- method->insns
-    ldrh    lr, [rSELF, #offThread_subMode]  @ lr<- subMode flags
     mov     r2, r9                      @ r2<- exception
     sub     r1, rPC, r1                 @ r1<- pc - method->insns
     mov     r1, r1, asr #1              @ r1<- offset in code units
@@ -17031,7 +17031,9 @@ common_exceptionThrown:
     ldr     r3, [r3, #offClassObject_descriptor]
     @
     ldr     r2, strExceptionNotCaughtLocally
+0:  add     r2, pc
     ldr     r1, strLogTag
+1:  add     r1, pc
     mov     r0, #3                      @ LOG_DEBUG
     bl      __android_log_print
 #endif
@@ -17041,6 +17043,10 @@ common_exceptionThrown:
     bl      dvmReleaseTrackedAlloc      @ release the exception
     b       common_gotoBail             @ bail out
 
+strExceptionNotCaughtLocally:
+    .word   PCREL_REF(.LstrExceptionNotCaughtLocally,0b)
+strLogTag:
+    .word   PCREL_REF(.LstrLogTag,1b)
 
     /*
      * Exception handling, calls through "glue code".
@@ -17108,8 +17114,12 @@ common_errArrayIndex:
 common_errDivideByZero:
     EXPORT_PC()
     ldr     r0, strDivideByZero
+0:  add     r0, pc
     bl      dvmThrowArithmeticException
     b       common_exceptionThrown
+
+strDivideByZero:
+    .word   PCREL_REF(.LstrDivideByZero,0b)
 
 /*
  * Attempt to allocate an array with a negative size.
@@ -17159,11 +17169,15 @@ common_abort:
     .macro  SQUEAK num
 common_squeak\num:
     stmfd   sp!, {r0, r1, r2, r3, ip, lr}
-    ldr     r0, strSqueak
+    ldr     r0, strSqueak\num
+0:  add     r0, pc
     mov     r1, #\num
     bl      printf
     ldmfd   sp!, {r0, r1, r2, r3, ip, lr}
     bx      lr
+
+strSqueak\num:
+    .word   PCREL_REF(.LstrSqueak,0b)
     .endm
 
     SQUEAK  0
@@ -17180,9 +17194,13 @@ common_printNum:
     stmfd   sp!, {r0, r1, r2, r3, ip, lr}
     mov     r1, r0
     ldr     r0, strSqueak
+0:  add     r0, pc
     bl      printf
     ldmfd   sp!, {r0, r1, r2, r3, ip, lr}
     bx      lr
+
+strSqueak:
+    .word   PCREL_REF(.LstrSqueak,0b)
 
 /*
  * Print a newline, preserving registers.
@@ -17190,9 +17208,13 @@ common_printNum:
 common_printNewline:
     stmfd   sp!, {r0, r1, r2, r3, ip, lr}
     ldr     r0, strNewline
+0:  add     r0, pc
     bl      printf
     ldmfd   sp!, {r0, r1, r2, r3, ip, lr}
     bx      lr
+
+strNewline:
+    .word   PCREL_REF(.LstrNewline,0b)
 
     /*
      * Print the 32-bit quantity in r0 as a hex value, preserving registers.
@@ -17201,9 +17223,13 @@ common_printHex:
     stmfd   sp!, {r0, r1, r2, r3, ip, lr}
     mov     r1, r0
     ldr     r0, strPrintHex
+0:  add     r0, pc
     bl      printf
     ldmfd   sp!, {r0, r1, r2, r3, ip, lr}
     bx      lr
+
+strPrintHex:
+    .word   PCREL_REF(.LstrPrintHex,0b)
 
 /*
  * Print the 64-bit quantity in r0-r1, preserving registers.
@@ -17213,9 +17239,13 @@ common_printLong:
     mov     r3, r1
     mov     r2, r0
     ldr     r0, strPrintLong
+0:  add     r0, pc
     bl      printf
     ldmfd   sp!, {r0, r1, r2, r3, ip, lr}
     bx      lr
+
+strPrintLong:
+    .word   PCREL_REF(.LstrPrintLong,0b)
 
 /*
  * Print full method info.  Pass the Method* in r0.  Preserves regs.
@@ -17271,25 +17301,6 @@ dvmConfigureFP:
 #endif
 
 
-/*
- * String references, must be close to the code that uses them.
- */
-    .align  2
-strDivideByZero:
-    .word   .LstrDivideByZero
-strLogTag:
-    .word   .LstrLogTag
-strExceptionNotCaughtLocally:
-    .word   .LstrExceptionNotCaughtLocally
-
-strNewline:
-    .word   .LstrNewline
-strSqueak:
-    .word   .LstrSqueak
-strPrintHex:
-    .word   .LstrPrintHex
-strPrintLong:
-    .word   .LstrPrintLong
 
 /*
  * Zero-terminated ASCII string data.
