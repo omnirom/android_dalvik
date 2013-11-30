@@ -654,7 +654,7 @@ ArmEncodingMap EncodingMap[kArmLast] = {
     ENCODING_MAP(kThumb2AdcRRR,  0xeb500000, /* setflags encoding */
                  kFmtBitBlt, 11, 8, kFmtBitBlt, 19, 16, kFmtBitBlt, 3, 0,
                  kFmtShift, -1, -1,
-                 IS_QUAD_OP | REG_DEF0_USE12 | SETS_CCODES,
+                 IS_QUAD_OP | REG_DEF0_USE12 | SETS_CCODES | USES_CCODES,
                  "adcs", "r!0d, r!1d, r!2d!3H", 2),
     ENCODING_MAP(kThumb2AndRRR,  0xea000000,
                  kFmtBitBlt, 11, 8, kFmtBitBlt, 19, 16, kFmtBitBlt, 3, 0,
@@ -677,7 +677,7 @@ ArmEncodingMap EncodingMap[kArmLast] = {
                  kFmtBitBlt, 11, 8, kFmtBitBlt, 19, 16, kFmtBitBlt, 3, 0,
                  kFmtUnused, -1, -1, IS_TERTIARY_OP | REG_DEF0_USE12,
                  "mul", "r!0d, r!1d, r!2d", 2),
-    ENCODING_MAP(kThumb2MnvRR,  0xea6f0000,
+    ENCODING_MAP(kThumb2MvnRR,  0xea6f0000,
                  kFmtBitBlt, 11, 8, kFmtBitBlt, 3, 0, kFmtShift, -1, -1,
                  kFmtUnused, -1, -1, IS_TERTIARY_OP | REG_DEF0_USE1,
                  "mvn", "r!0d, r!1d, shift !2d", 2),
@@ -685,12 +685,12 @@ ArmEncodingMap EncodingMap[kArmLast] = {
                  kFmtBitBlt, 11, 8, kFmtBitBlt, 19, 16, kFmtModImm, -1, -1,
                  kFmtUnused, -1, -1,
                  IS_TERTIARY_OP | REG_DEF0_USE1 | SETS_CCODES,
-                 "rsb", "r!0d,r!1d,#!2m", 2),
-    ENCODING_MAP(kThumb2NegRR,       0xf1d00000, /* instance of rsub */
+                 "rsbs", "r!0d,r!1d,#!2m", 2),
+    ENCODING_MAP(kThumb2NegRR,       0xf1d00000, /* instance of rsbs */
                  kFmtBitBlt, 11, 8, kFmtBitBlt, 19, 16, kFmtUnused, -1, -1,
                  kFmtUnused, -1, -1,
                  IS_BINARY_OP | REG_DEF0_USE1 | SETS_CCODES,
-                 "neg", "r!0d,r!1d", 2),
+                 "negs", "r!0d,r!1d", 2),
     ENCODING_MAP(kThumb2OrrRRR,  0xea400000,
                  kFmtBitBlt, 11, 8, kFmtBitBlt, 19, 16, kFmtBitBlt, 3, 0,
                  kFmtShift, -1, -1, IS_QUAD_OP | REG_DEF0_USE12,
@@ -774,15 +774,15 @@ ArmEncodingMap EncodingMap[kArmLast] = {
                  "it:!1b", "!0c", 1),
     ENCODING_MAP(kThumb2Fmstat,  0xeef1fa10,
                  kFmtUnused, -1, -1, kFmtUnused, -1, -1, kFmtUnused, -1, -1,
-                 kFmtUnused, -1, -1, NO_OPERAND | SETS_CCODES,
+                 kFmtUnused, -1, -1, NO_OPERAND | SETS_CCODES | USES_FPSTATUS,
                  "fmstat", "", 2),
     ENCODING_MAP(kThumb2Vcmpd,        0xeeb40b40,
                  kFmtDfp, 22, 12, kFmtDfp, 5, 0, kFmtUnused, -1, -1,
-                 kFmtUnused, -1, -1, IS_BINARY_OP | REG_USE01,
+                 kFmtUnused, -1, -1, IS_BINARY_OP | REG_USE01 | SETS_FPSTATUS,
                  "vcmp.f64", "!0S, !1S", 2),
     ENCODING_MAP(kThumb2Vcmps,        0xeeb40a40,
                  kFmtSfp, 22, 12, kFmtSfp, 5, 0, kFmtUnused, -1, -1,
-                 kFmtUnused, -1, -1, IS_BINARY_OP | REG_USE01,
+                 kFmtUnused, -1, -1, IS_BINARY_OP | REG_USE01 | SETS_FPSTATUS,
                  "vcmp.f32", "!0s, !1s", 2),
     ENCODING_MAP(kThumb2LdrPcRel12,       0xf8df0000,
                  kFmtBitBlt, 15, 12, kFmtBitBlt, 11, 0, kFmtUnused, -1, -1,
@@ -929,6 +929,24 @@ static void installLiteralPools(CompilationUnit *cUnit)
 }
 
 /*
+ * Return the encoding map for the specified ARM opcode
+ */
+__attribute__((weak)) ArmEncodingMap* getEncoding(ArmOpcode opcode) {
+    if (opcode > kThumbUndefined) {
+        opcode = kThumbUndefined;
+    }
+    ArmEncodingMap* encoder = &EncodingMap[opcode];
+    return encoder;
+}
+
+/* process more ARM encodings */
+__attribute__((weak)) u4 processMoreEncodings(ArmEncodingMap* encoder, int pos, u4 operand)
+{
+    assert(0);
+    return 0;
+}
+
+/*
  * Assemble the LIR into binary instruction format.  Note that we may
  * discover that pc-relative displacements may not fit the selected
  * instruction.  In those cases we will try to substitute a new code
@@ -1027,12 +1045,18 @@ static AssemblerStatus assembleInstructions(CompilationUnit *cUnit,
             intptr_t target = targetLIR->generic.offset;
             int delta = target - pc;
             if ((lir->opcode == kThumbBCond) && (delta > 254 || delta < -256)) {
-                if (cUnit->printMe) {
-                    ALOGD("kThumbBCond@%x: delta=%d", lir->generic.offset,
-                         delta);
-                    dvmCompilerCodegenDump(cUnit);
+                if (delta <= 1048574 && delta >= -1048576) {
+                    /* convert T1 branch to T3 */
+                    lir->opcode = kThumb2BCond;
+                    return kRetryAll;
+                } else {
+                    if (cUnit->printMe) {
+                        ALOGD("kThumbBCond@%x: delta=%d", lir->generic.offset,
+                            delta);
+                        dvmCompilerCodegenDump(cUnit);
+                    }
+                    return kRetryHalve;
                 }
-                return kRetryHalve;
             }
             lir->operands[0] = delta >> 1;
         } else if (lir->opcode == kThumbBUncond) {
@@ -1073,7 +1097,7 @@ static AssemblerStatus assembleInstructions(CompilationUnit *cUnit,
             NEXT_LIR(lir)->operands[0] = (delta>> 1) & 0x7ff;
         }
 
-        ArmEncodingMap *encoder = &EncodingMap[lir->opcode];
+        ArmEncodingMap* encoder = getEncoding(lir->opcode);
         u4 bits = encoder->skeleton;
         int i;
         for (i = 0; i < 4; i++) {
@@ -1128,7 +1152,7 @@ static AssemblerStatus assembleInstructions(CompilationUnit *cUnit,
                 case kFmtDfp: {
                     assert(DOUBLEREG(operand));
                     assert((operand & 0x1) == 0);
-                    int regName = (operand & FP_REG_MASK) >> 1;
+                    int regName = (operand - FP_DOUBLE - FP_REG_OFFSET) / 2;
                     /* Snag the 1-bit slice and position it */
                     value = ((regName & 0x10) >> 4) <<
                             encoder->fieldLoc[i].end;
@@ -1163,7 +1187,8 @@ static AssemblerStatus assembleInstructions(CompilationUnit *cUnit,
                     bits |= value;
                     break;
                 default:
-                    assert(0);
+                    bits |= processMoreEncodings(encoder, i, operand);
+                    break;
             }
         }
         if (encoder->size == 2) {
@@ -1296,10 +1321,10 @@ static inline u4 getChainCellSize(const ChainCellCounts* pChainCellCounts)
     for (i = 0; i < kChainingCellGap; i++) {
         if (i != kChainingCellInvokePredicted) {
             cellSize += pChainCellCounts->u.count[i] *
-                        (CHAIN_CELL_NORMAL_SIZE >> 2);
+                        ((CHAIN_CELL_NORMAL_SIZE >> 2)+pChainCellCounts->extraSize);
         } else {
             cellSize += pChainCellCounts->u.count[i] *
-                (CHAIN_CELL_PREDICTED_SIZE >> 2);
+                ((CHAIN_CELL_PREDICTED_SIZE >> 2)+pChainCellCounts->extraSize);
         }
     }
     return cellSize;
@@ -1378,7 +1403,9 @@ void dvmCompilerAssembleLIR(CompilationUnit *cUnit, JitTranslationInfo *info)
          armLIR = NEXT_LIR(armLIR)) {
         armLIR->generic.offset = offset;
         if (armLIR->opcode >= 0 && !armLIR->flags.isNop) {
-            armLIR->flags.size = EncodingMap[armLIR->opcode].size * 2;
+            armLIR->flags.size = getEncoding(armLIR->opcode)->size * 2;
+            if(armLIR->flags.size==0)
+                armLIR->flags.isNop=true;
             offset += armLIR->flags.size;
         } else if (armLIR->opcode == kArmPseudoPseudoAlign4) {
             if (offset & 0x2) {
@@ -1521,6 +1548,9 @@ void dvmCompilerAssembleLIR(CompilationUnit *cUnit, JitTranslationInfo *info)
         /* Set the gap number in the chaining cell count structure */
         chainCellCounts.u.count[kChainingCellGap] = chainingCellGap;
 
+        assert((cUnit->chainingCellExtraSize & 0x3) ==0);
+        chainCellCounts.extraSize = cUnit->chainingCellExtraSize >> 2;
+
         memcpy((char*)cUnit->baseAddr + chainCellOffset, &chainCellCounts,
                sizeof(chainCellCounts));
 
@@ -1558,7 +1588,7 @@ void dvmCompilerAssembleLIR(CompilationUnit *cUnit, JitTranslationInfo *info)
  */
 static u4 getSkeleton(ArmOpcode op)
 {
-    return EncodingMap[op].skeleton;
+    return getEncoding(op)->skeleton;
 }
 
 static u4 assembleChainingBranch(int branchOffset, bool thumbTarget)
@@ -1916,6 +1946,7 @@ static u4* unchainSingle(JitEntry *trace)
         }
 
         for (j = 0; j < pChainCellCounts->u.count[i]; j++) {
+            pChainCells += pChainCellCounts->extraSize;
             switch(i) {
                 case kChainingCellNormal:
                 case kChainingCellHot:
@@ -2200,13 +2231,14 @@ static void findClassPointersSingleTrace(char *base, void (*callback)(void *))
              chainTypeIdx++) {
             if (chainTypeIdx != kChainingCellInvokePredicted) {
                 /* In 32-bit words */
-                pChainCells += (CHAIN_CELL_NORMAL_SIZE >> 2) *
+                pChainCells += ((CHAIN_CELL_NORMAL_SIZE >> 2)+pChainCellCounts->extraSize) *
                     pChainCellCounts->u.count[chainTypeIdx];
                 continue;
             }
             for (chainIdx = 0;
                  chainIdx < pChainCellCounts->u.count[chainTypeIdx];
                  chainIdx++) {
+                pChainCells += pChainCellCounts->extraSize;
                 PredictedChainingCell *cell =
                     (PredictedChainingCell *) pChainCells;
                 /*
