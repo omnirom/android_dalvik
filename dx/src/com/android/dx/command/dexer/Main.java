@@ -34,7 +34,6 @@ import com.android.dx.dex.cf.CfOptions;
 import com.android.dx.dex.cf.CfTranslator;
 import com.android.dx.dex.cf.CodeStatistics;
 import com.android.dx.dex.code.PositionList;
-import com.android.dx.dex.file.AnnotationUtils;
 import com.android.dx.dex.file.ClassDefItem;
 import com.android.dx.dex.file.DexFile;
 import com.android.dx.dex.file.EncodedMethod;
@@ -64,9 +63,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -76,6 +80,7 @@ import java.util.jar.Manifest;
  * Main class for the class file translator.
  */
 public class Main {
+
     /**
      * File extension of a {@code .dex} file.
      */
@@ -148,8 +153,15 @@ public class Main {
         "transaction", "xml"
     };
 
+    /* Array.newInstance may be added by RopperMachine,
+     * ArrayIndexOutOfBoundsException.<init> may be added by EscapeAnalysis */
+    private static final int MAX_METHOD_ADDED_DURING_DEX_CREATION = 2;
+
+    /* <primitive types box class>.TYPE */
+    private static final int MAX_FIELD_ADDED_DURING_DEX_CREATION = 9;
+
     /** number of errors during processing */
-    private static int errors = 0;
+    private static AtomicInteger errors = new AtomicInteger(0);
 
     /** {@code non-null;} parsed command-line arguments */
     private static Arguments args;
@@ -169,8 +181,11 @@ public class Main {
     /** thread pool object used for multi-threaded file processing */
     private static ExecutorService threadPool;
 
+    /** used to handle Errors for multi-threaded file processing */
+    private static List<Future<Void>> parallelProcessorFutures;
+
     /** true if any files are successfully processed */
-    private static boolean anyFilesProcessed;
+    private static volatile boolean anyFilesProcessed;
 
     /** class files older than this must be defined in the target dex file. */
     private static long minimumFileAge = 0;
@@ -209,7 +224,7 @@ public class Main {
      */
     public static int run(Arguments arguments) throws IOException {
         // Reset the error count to start fresh.
-        errors = 0;
+        errors.set(0);
         // empty the list, so that  tools that load dx and keep it around
         // for multiple runs don't reuse older buffers.
         libraryDexBuffers.clear();
@@ -272,7 +287,7 @@ public class Main {
         // this array is null if no classes were defined
         byte[] outArray = null;
 
-        if (!outputDex.isEmpty()) {
+        if (!outputDex.isEmpty() || (args.humanOutName != null)) {
             outArray = writeDex();
 
             if (outArray == null) {
@@ -311,7 +326,7 @@ public class Main {
         assert args.numThreads == 1;
 
         if (args.mainDexListFile != null) {
-            classesInMainDex = loadMainDexListFile(args.mainDexListFile);
+            classesInMainDex = readPathsFromFile(args.mainDexListFile);
         }
 
         if (!processAllFiles()) {
@@ -365,17 +380,17 @@ public class Main {
         }
     }
 
-    private static Set<String> loadMainDexListFile(String mainDexListFile) throws IOException {
-        Set<String> mainDexList = new HashSet<String>();
+    private static Set<String> readPathsFromFile(String fileName) throws IOException {
+        Set<String> paths = new HashSet<String>();
         BufferedReader bfr = null;
         try {
-            FileReader fr = new FileReader(mainDexListFile);
+            FileReader fr = new FileReader(fileName);
             bfr = new BufferedReader(fr);
 
             String line;
 
             while (null != (line = bfr.readLine())) {
-                mainDexList.add(fixPath(line));
+                paths.add(fixPath(line));
             }
 
         } finally {
@@ -383,7 +398,7 @@ public class Main {
                 bfr.close();
             }
         }
-        return mainDexList;
+        return paths;
     }
 
     /**
@@ -461,6 +476,7 @@ public class Main {
 
         if (args.numThreads > 1) {
             threadPool = Executors.newFixedThreadPool(args.numThreads);
+            parallelProcessorFutures = new ArrayList<Future<Void>>();
         }
 
         try {
@@ -471,12 +487,10 @@ public class Main {
 
                 // forced in main dex
                 for (int i = 0; i < fileNames.length; i++) {
-                    if (processOne(fileNames[i], mainPassFilter)) {
-                        anyFilesProcessed = true;
-                    }
+                    processOne(fileNames[i], mainPassFilter);
                 }
 
-                if (dexOutputArrays.size() > 1) {
+                if (dexOutputArrays.size() > 0) {
                     throw new DexException("Too many classes in " + Arguments.MAIN_DEX_LIST_OPTION
                             + ", main dex capacity exceeded");
                 }
@@ -488,16 +502,12 @@ public class Main {
 
                 // remaining files
                 for (int i = 0; i < fileNames.length; i++) {
-                    if (processOne(fileNames[i], new NotFilter(mainPassFilter))) {
-                        anyFilesProcessed = true;
-                    }
+                    processOne(fileNames[i], new NotFilter(mainPassFilter));
                 }
             } else {
                 // without --main-dex-list
                 for (int i = 0; i < fileNames.length; i++) {
-                    if (processOne(fileNames[i], ClassPathOpener.acceptAll)) {
-                        anyFilesProcessed = true;
-                    }
+                    processOne(fileNames[i], ClassPathOpener.acceptAll);
                 }
             }
         } catch (StopProcessing ex) {
@@ -510,15 +520,38 @@ public class Main {
         if (args.numThreads > 1) {
             try {
                 threadPool.shutdown();
-                threadPool.awaitTermination(600L, TimeUnit.SECONDS);
+                if (!threadPool.awaitTermination(600L, TimeUnit.SECONDS)) {
+                    throw new RuntimeException("Timed out waiting for threads.");
+                }
             } catch (InterruptedException ex) {
-                throw new RuntimeException("Timed out waiting for threads.");
+                threadPool.shutdownNow();
+                throw new RuntimeException("A thread has been interrupted.");
+            }
+
+            try {
+              for (Future<?> future : parallelProcessorFutures) {
+                future.get();
+              }
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                // All Exceptions should have been handled in the ParallelProcessor, only Errors
+                // should remain
+                if (cause instanceof Error) {
+                    throw (Error) e.getCause();
+                } else {
+                    throw new AssertionError(e.getCause());
+                }
+            } catch (InterruptedException e) {
+              // If we're here, it means all threads have completed cleanly, so there should not be
+              // any InterruptedException
+              throw new AssertionError(e);
             }
         }
 
-        if (errors != 0) {
-            DxConsole.err.println(errors + " error" +
-                    ((errors == 1) ? "" : "s") + "; aborting");
+        int errorNum = errors.get();
+        if (errorNum != 0) {
+            DxConsole.err.println(errorNum + " error" +
+                    ((errorNum == 1) ? "" : "s") + "; aborting");
             return false;
         }
 
@@ -557,21 +590,19 @@ public class Main {
      * be the path of a class file, a jar file, or a directory
      * containing class files.
      * @param filter {@code non-null;} A filter for excluding files.
-     * @return whether any processing actually happened
      */
-    private static boolean processOne(String pathname, FileNameFilter filter) {
+    private static void processOne(String pathname, FileNameFilter filter) {
         ClassPathOpener opener;
 
         opener = new ClassPathOpener(pathname, false, filter,
                 new ClassPathOpener.Consumer() {
+
+            @Override
             public boolean processFileBytes(String name, long lastModified, byte[] bytes) {
-                if (args.numThreads > 1) {
-                    threadPool.execute(new ParallelProcessor(name, lastModified, bytes));
-                    return false;
-                } else {
-                    return Main.processFileBytes(name, lastModified, bytes);
-                }
+                return Main.processFileBytes(name, lastModified, bytes);
             }
+
+            @Override
             public void onException(Exception ex) {
                 if (ex instanceof StopProcessing) {
                     throw (StopProcessing) ex;
@@ -583,8 +614,10 @@ public class Main {
                     DxConsole.err.println("\nUNEXPECTED TOP-LEVEL EXCEPTION:");
                     ex.printStackTrace(DxConsole.err);
                 }
-                errors++;
+                errors.incrementAndGet();
             }
+
+            @Override
             public void onProcessArchiveStart(File file) {
                 if (args.verbose) {
                     DxConsole.out.println("processing archive " + file +
@@ -593,7 +626,13 @@ public class Main {
             }
         });
 
-        return opener.process();
+        if (args.numThreads > 1) {
+            parallelProcessorFutures.add(threadPool.submit(new ParallelProcessor(opener)));
+        } else {
+            if (opener.process()) {
+                anyFilesProcessed = true;
+            }
+        }
     }
 
     /**
@@ -666,16 +705,24 @@ public class Main {
 
         int numMethodIds = outputDex.getMethodIds().items().size();
         int numFieldIds = outputDex.getFieldIds().items().size();
-        int numTypeIds = outputDex.getTypeIds().items().size();
         int constantPoolSize = cf.getConstantPool().size();
 
-        if (args.multiDex && ((numMethodIds + constantPoolSize > args.maxNumberOfIdxPerDex) ||
-            (numFieldIds + constantPoolSize > args.maxNumberOfIdxPerDex) ||
-            (numTypeIds + constantPoolSize
-                    /* annotation added by dx are not counted in numTypeIds */
-                    + AnnotationUtils.DALVIK_ANNOTATION_NUMBER
-                    > args.maxNumberOfIdxPerDex))) {
-          createDexFile();
+        int maxMethodIdsInDex = numMethodIds + constantPoolSize + cf.getMethods().size() +
+                MAX_METHOD_ADDED_DURING_DEX_CREATION;
+        int maxFieldIdsInDex = numFieldIds + constantPoolSize + cf.getFields().size() +
+                MAX_FIELD_ADDED_DURING_DEX_CREATION;
+
+        if (args.multiDex
+            // Never switch to the next dex if current dex is already empty
+            && (outputDex.getClassDefs().items().size() > 0)
+            && ((maxMethodIdsInDex > args.maxNumberOfIdxPerDex) ||
+                (maxFieldIdsInDex > args.maxNumberOfIdxPerDex))) {
+            DexFile completeDex = outputDex;
+            createDexFile();
+            assert  (completeDex.getMethodIds().items().size() <= numMethodIds +
+                    MAX_METHOD_ADDED_DURING_DEX_CREATION) &&
+                    (completeDex.getFieldIds().items().size() <= numFieldIds +
+                    MAX_FIELD_ADDED_DURING_DEX_CREATION);
         }
 
         try {
@@ -694,7 +741,7 @@ public class Main {
                 ex.printContext(DxConsole.err);
             }
         }
-        errors++;
+        errors.incrementAndGet();
         return false;
     }
 
@@ -734,7 +781,7 @@ public class Main {
 
         DxConsole.err.println("\ntrouble processing \"" + name + "\":\n\n" +
                 IN_RE_CORE_CLASSES);
-        errors++;
+        errors.incrementAndGet();
         throw new StopProcessing();
     }
 
@@ -1147,6 +1194,8 @@ public class Main {
 
         private static final String INCREMENTAL_OPTION = "--incremental";
 
+        private static final String INPUT_LIST_OPTION = "--input-list";
+
         /** whether to run in debug mode */
         public boolean debug = false;
 
@@ -1191,9 +1240,6 @@ public class Main {
          * keep the {@code .class} files
          */
         public boolean keepClassesInJar = false;
-
-        /** what API level to target */
-        public int targetApiLevel = DexFormat.API_NO_EXTENDED_OPCODES;
 
         /** how much source position info to preserve */
         public int positionInfo = PositionList.LINES;
@@ -1242,6 +1288,9 @@ public class Main {
         /** Produce the smallest possible main dex. Ignored unless multiDex is true and
          * mainDexListFile is specified and non empty. */
         public boolean minimalMainDex = false;
+
+        /** Optional list containing inputs read in from a file. */
+        private Set<String> inputList = null;
 
         private int maxNumberOfIdxPerDex = DexFormat.MAX_MEMBER_IDX + 1;
 
@@ -1444,13 +1493,29 @@ public class Main {
                     minimalMainDex = true;
                 } else if (parser.isArg("--set-max-idx-number=")) { // undocumented test option
                     maxNumberOfIdxPerDex = Integer.parseInt(parser.getLastValue());
-              } else {
+                } else if(parser.isArg(INPUT_LIST_OPTION + "=")) {
+                    File inputListFile = new File(parser.getLastValue());
+                    try{
+                        inputList = readPathsFromFile(inputListFile.getAbsolutePath());
+                    } catch(IOException e) {
+                        System.err.println(
+                            "Unable to read input list file: " + inputListFile.getName());
+                        // problem reading the file so we should halt execution
+                        throw new UsageException();
+                    }
+                } else {
                     System.err.println("unknown option: " + parser.getCurrent());
                     throw new UsageException();
                 }
             }
 
             fileNames = parser.getRemaining();
+            if(inputList != null && !inputList.isEmpty()) {
+                // append the file names to the end of the input list
+                inputList.addAll(Arrays.asList(fileNames));
+                fileNames = inputList.toArray(new String[inputList.size()]);
+            }
+
             if (fileNames.length == 0) {
                 if (!emptyOk) {
                     System.err.println("no input files specified");
@@ -1517,39 +1582,25 @@ public class Main {
             cfOptions.warn = DxConsole.err;
 
             dexOptions = new DexOptions();
-            dexOptions.targetApiLevel = targetApiLevel;
             dexOptions.forceJumbo = forceJumbo;
         }
     }
 
-    /** Runnable helper class to process files in multiple threads */
-    private static class ParallelProcessor implements Runnable {
+    /** Callable helper class to process files in multiple threads */
+    private static class ParallelProcessor implements Callable<Void> {
 
-        String path;
-        long lastModified;
-        byte[] bytes;
+        ClassPathOpener classPathOpener;
 
-        /**
-         * Constructs an instance.
-         *
-         * @param path {@code non-null;} filename of element. May not be a valid
-         * filesystem path.
-         * @param bytes {@code non-null;} file data
-         */
-        private ParallelProcessor(String path, long lastModified, byte bytes[]) {
-            this.path = path;
-            this.lastModified = lastModified;
-            this.bytes = bytes;
+        private ParallelProcessor(ClassPathOpener classPathOpener) {
+            this.classPathOpener = classPathOpener;
         }
 
-        /**
-         * Task run by each thread in the thread pool. Runs processFileBytes
-         * with the given path and bytes.
-         */
-        public void run() {
-            if (Main.processFileBytes(path, lastModified, bytes)) {
+        @Override
+        public Void call() throws Exception {
+            if (classPathOpener.process()) {
                 anyFilesProcessed = true;
             }
+            return null;
         }
     }
 }

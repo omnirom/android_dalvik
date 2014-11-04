@@ -89,9 +89,9 @@ public final class HighRegisterPrefix extends VariableSizeInsn {
         insns = new SimpleInsn[sz];
 
         for (int i = 0, outAt = 0; i < sz; i++) {
-            RegisterSpec src = registers.get(i);
-            insns[i] = moveInsnFor(src, outAt);
-            outAt += src.getCategory();
+          RegisterSpec src = registers.get(i);
+          insns[i] = moveInsnFor(src, outAt);
+          outAt += src.getCategory();
         }
     }
 
